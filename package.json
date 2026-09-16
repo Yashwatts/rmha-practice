@@ -19,7 +19,8 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "migration:run": "typeorm-ts-node-commonjs migration:run -d src/shared/database/data-source.ts",
-    "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/shared/database/data-source.ts"
+    "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/shared/database/data-source.ts",
+    "migration:create": "typeorm-ts-node-commonjs migration:create -d src/shared/database/data-source.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -27,7 +28,9 @@
     "@nestjs/core": "^11.0.1",
     "@nestjs/cqrs": "^11.0.2",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/schedule": "^12.0.2",
     "@nestjs/typeorm": "^12.0.1",
+    "amqplib": "^2.0.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "pg": "^8.23.0",
@@ -41,6 +44,7 @@
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
+    "@types/amqplib": "^0.10.8",
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.0.0",
