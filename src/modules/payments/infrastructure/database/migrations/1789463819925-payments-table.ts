@@ -25,7 +25,7 @@ export class PaymentsTable1789463819925 implements MigrationInterface {
           {
             name: 'status',
             type: 'enum',
-            enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'],
+            enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED'],
             default: "'PENDING'",
           },
           {

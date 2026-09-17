@@ -10,6 +10,8 @@ import { PaymentsInboxEntity } from './infrastructure/database/inbox/payments-in
 import { PaymentsOutboxEntity } from './infrastructure/database/outbox/payments-outbox.entity';
 import { PaymentsConsumer } from './infrastructure/rabbitmq/payments.consumer';
 import { PaymentsRetryPublisher } from './infrastructure/rabbitmq/payments-retry.publisher';
+import { CreatePaymentModule } from './features/create-payment/create-payment.module';
+import { CancelPaymentModule } from './features/cancel-payment/cancel-payment.module';
 
 @Module({
   imports: [
@@ -23,6 +25,8 @@ import { PaymentsRetryPublisher } from './infrastructure/rabbitmq/payments-retry
     ProcessPaymentModule,
     CompletePaymentModule,
     FailPaymentModule,
+    CreatePaymentModule,
+    CancelPaymentModule,
   ],
   providers: [PaymentsConsumer, PaymentsRetryPublisher],
 })

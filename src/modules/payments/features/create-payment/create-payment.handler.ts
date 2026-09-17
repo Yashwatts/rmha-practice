@@ -1,20 +1,18 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { ProcessPaymentCommand } from './process-payment.command';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { PaymentsEntity } from '../../domains/payments/payments.entity';
 import { DataSource } from 'typeorm';
+import { CreatePaymentCommand } from './create-payment.command';
+import { PaymentsEntity } from '../../domains/payments/payments.entity';
 import { PaymentsInboxEntity } from '../../infrastructure/database/inbox/payments-inbox.entity';
 
-@CommandHandler(ProcessPaymentCommand)
-export class ProcessPaymentHandler implements ICommandHandler<ProcessPaymentCommand> {
+@CommandHandler(CreatePaymentCommand)
+export class CreatePaymentHandler implements ICommandHandler<CreatePaymentCommand> {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
 
-  async execute(
-    command: ProcessPaymentCommand,
-  ): Promise<{ paymentId: string }> {
+  async execute(command: CreatePaymentCommand): Promise<{ paymentId: string }> {
     return this.dataSource.transaction(async (manager) => {
       const existingInbox = await manager.findOne(PaymentsInboxEntity, {
         where: { message_id: command.messageId },
@@ -29,19 +27,13 @@ export class ProcessPaymentHandler implements ICommandHandler<ProcessPaymentComm
         if (!existingPayment) {
           throw new Error(`Payment not found for orderId: ${command.orderId}`);
         }
+
         return {
           paymentId: existingPayment.id,
         };
       }
-      const payment = await manager.findOne(PaymentsEntity, {
-        where: { order_id: command.orderId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!payment) {
-        throw new Error(`Payment not found for orderId: ${command.orderId}`);
-      }
-      // throw new Error('TEST RETRY');
-      payment.process();
+
+      const payment = PaymentsEntity.create(command.orderId, command.amount);
       await manager.save(PaymentsEntity, payment);
 
       const inbox = new PaymentsInboxEntity();
@@ -50,6 +42,7 @@ export class ProcessPaymentHandler implements ICommandHandler<ProcessPaymentComm
       inbox.payload = command.payload;
 
       await manager.save(PaymentsInboxEntity, inbox);
+
       return { paymentId: payment.id };
     });
   }

@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CreatePaymentHandler } from './create-payment.handler';
 import { PaymentsEntity } from '../../domains/payments/payments.entity';
-import { ProcessPaymentHandler } from './process-payment.handler';
 import { PaymentsInboxEntity } from '../../infrastructure/database/inbox/payments-inbox.entity';
 
 @Module({
@@ -11,6 +11,6 @@ import { PaymentsInboxEntity } from '../../infrastructure/database/inbox/payment
     TypeOrmModule.forFeature([PaymentsEntity, PaymentsInboxEntity]),
   ],
   controllers: [],
-  providers: [ProcessPaymentHandler],
+  providers: [CreatePaymentHandler],
 })
-export class ProcessPaymentModule {}
+export class CreatePaymentModule {}

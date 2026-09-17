@@ -68,4 +68,12 @@ export class PaymentsEntity {
     }
     this.status = PaymentStatusEnum.FAILED;
   }
+
+  cancel(): void {
+    if (this.status !== PaymentStatusEnum.PENDING) {
+      throw new Error(`Payment cannot be cancelled from ${this.status} status`);
+    }
+
+    this.status = PaymentStatusEnum.CANCELLED;
+  }
 }

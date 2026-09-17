@@ -1,18 +1,17 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
 import { RabbitMQService } from 'src/shared/rabbitmq/rabbitmq.service';
-import { DataSource } from 'typeorm';
-import { PaymentsInboxEntity } from '../database/inbox/payments-inbox.entity';
-import { PaymentsEntity } from '../../domains/payments/payments.entity';
 import { PaymentsRetryPublisher } from './payments-retry.publisher';
+import { CommandBus } from '@nestjs/cqrs';
+import { CreatePaymentCommand } from '../../features/create-payment/create-payment.command';
+import { ProcessPaymentCommand } from '../../features/process-payment/process-payment.command';
+import { CancelPaymentCommand } from '../../features/cancel-payment/cancel-payment.command';
 
 @Injectable()
 export class PaymentsConsumer implements OnModuleInit {
   constructor(
     private readonly rabbitMQService: RabbitMQService,
     private readonly paymentsRetryPublisher: PaymentsRetryPublisher,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
+    private readonly commandBus: CommandBus,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -34,7 +33,14 @@ export class PaymentsConsumer implements OnModuleInit {
 
     const exchange = process.env.RABBITMQ_ORDERS_TO_PAYMENTS_EXCHANGE!;
     const queue = process.env.RABBITMQ_PAYMENTS_QUEUE!;
-    const routingKey = process.env.RABBITMQ_ORDER_CREATED_ROUTING_KEY!;
+
+    const orderCreatedRoutingKey =
+      process.env.RABBITMQ_ORDER_CREATED_ROUTING_KEY!;
+    const orderConfirmedRoutingKey =
+      process.env.RABBITMQ_ORDER_CONFIRMED_ROUTING_KEY!;
+    const orderCancelledRoutingKey =
+      process.env.RABBITMQ_ORDER_CANCELLED_ROUTING_KEY!;
+    const orderRetryRoutingKey = process.env.RABBITMQ_ORDER_RETRY_ROUTING_KEY!;
 
     await channel.assertExchange(exchange, 'topic', {
       durable: true,
@@ -48,7 +54,10 @@ export class PaymentsConsumer implements OnModuleInit {
       },
     });
 
-    await channel.bindQueue(queue, exchange, routingKey);
+    await channel.bindQueue(queue, exchange, orderCreatedRoutingKey);
+    await channel.bindQueue(queue, exchange, orderConfirmedRoutingKey);
+    await channel.bindQueue(queue, exchange, orderCancelledRoutingKey);
+    await channel.bindQueue(queue, exchange, orderRetryRoutingKey);
 
     const retryExchange = process.env.RABBITMQ_RETRY_EXCHANGE!;
     const retryQueue = process.env.RABBITMQ_RETRY_QUEUE!;
@@ -62,7 +71,7 @@ export class PaymentsConsumer implements OnModuleInit {
       durable: true,
       arguments: {
         'x-dead-letter-exchange': exchange,
-        'x-dead-letter-routing-key': routingKey,
+        'x-dead-letter-routing-key': orderRetryRoutingKey,
       },
     });
 
@@ -81,39 +90,77 @@ export class PaymentsConsumer implements OnModuleInit {
         try {
           const event = JSON.parse(message.content.toString());
           const messageId = message.properties.messageId;
+          const eventType = message.properties.headers?.['x-event-type'];
+
+          if (!eventType) {
+            throw new Error('RabbitMQ event type is missing');
+          }
           if (!messageId) {
             throw new Error('RabbitMQ messageId is missing');
           }
 
-          await this.dataSource.transaction(async (manager) => {
-            const existingInbox = await manager.findOne(PaymentsInboxEntity, {
-              where: { message_id: messageId },
-            });
-            if (existingInbox) {
-              return;
-            }
-            // throw new Error('TEST RETRY');
-            const payment = PaymentsEntity.create(event.orderId, event.amount);
-            await manager.save(PaymentsEntity, payment);
-
-            const inbox = new PaymentsInboxEntity();
-
-            inbox.message_id = messageId;
-            inbox.event_type = 'OrderCreatedEvent';
-            inbox.payload = event;
-
-            await manager.save(PaymentsInboxEntity, inbox);
-          });
-          channel.ack(message);
-        } catch (error) {
-          console.error('Error processing message:', error);
           const currentRetryCount = Number(
             message.properties.headers?.['x-retry-count'] ?? 0,
           );
-
           const maxRetries = Number(process.env.RABBITMQ_MAX_RETRIES);
+          const maxInternalAttempts = Number(
+            process.env.RABBITMQ_MAX_INTERNAL_ATTEMPTS,
+          );
 
-          if (currentRetryCount >= maxRetries) {
+          for (let attempt = 1; attempt <= maxInternalAttempts; attempt++) {
+            try {
+              switch (eventType) {
+                case 'OrderCreatedEvent':
+                  await this.commandBus.execute(
+                    new CreatePaymentCommand(
+                      event.orderId,
+                      event.amount,
+                      messageId,
+                      eventType,
+                      event,
+                    ),
+                  );
+                  break;
+
+                case 'OrderConfirmedEvent':
+                  await this.commandBus.execute(
+                    new ProcessPaymentCommand(
+                      event.orderId,
+                      messageId,
+                      eventType,
+                      event,
+                    ),
+                  );
+                  break;
+
+                case 'OrderCancelledEvent':
+                  await this.commandBus.execute(
+                    new CancelPaymentCommand(
+                      event.orderId,
+                      messageId,
+                      eventType,
+                      event,
+                    ),
+                  );
+                  break;
+
+                default:
+                  throw new Error(`Unsupported order event: ${eventType}`);
+              }
+              channel.ack(message);
+              return;
+            } catch (error) {
+              console.error(
+                `Attempt ${attempt}/${maxInternalAttempts} failed:`,
+                error,
+              );
+            }
+          }
+
+          if (currentRetryCount >= maxRetries - 1) {
+            console.error(
+              `Message ${messageId} exhausted ${maxRetries} retry cycles.`,
+            );
             channel.nack(message, false, false);
             return;
           }
@@ -122,10 +169,16 @@ export class PaymentsConsumer implements OnModuleInit {
 
           await this.paymentsRetryPublisher.publish(message.content, {
             'x-retry-count': nextRetryCount,
-            'x-message-id': message.properties.messageId,
+            'x-attempt-count': 0,
+            'x-message-id': messageId,
+            'x-event-type': eventType,
           });
 
           channel.ack(message);
+        } catch (error) {
+          console.error('Error preparing message:', error);
+
+          channel.nack(message, false, false);
         }
       },
       {

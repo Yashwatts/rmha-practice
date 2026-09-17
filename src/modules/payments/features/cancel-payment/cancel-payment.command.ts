@@ -1,11 +1,11 @@
 import { Command } from '@nestjs/cqrs';
 
-export class ProcessPaymentCommand extends Command<{ paymentId: string }> {
+export class CancelPaymentCommand extends Command<{ paymentId: string }> {
   constructor(
     public readonly orderId: string,
     public readonly messageId: string,
     public readonly eventType: string,
-    public readonly payload: any,
+    public readonly payload: Record<string, any>,
   ) {
     super();
   }
